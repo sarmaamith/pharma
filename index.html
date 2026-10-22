@@ -50,7 +50,8 @@
 
   /* Home */
   .hero{background:linear-gradient(120deg,#06543E,#0E9F72);color:#fff;padding:clamp(36px,7vw,80px) clamp(14px,4vw,48px);position:relative;overflow:hidden}
-  .hero::after{content:"";position:absolute;right:-80px;top:-60px;width:420px;height:420px;border-radius:50%;background:rgba(255,255,255,.08)}
+  .hero::after{content:"";position:absolute;right:-80px;top:-60px;width:420px;height:420px;border-radius:50%;background:rgba(255,255,255,.08);pointer-events:none}
+  .hero > *{position:relative;z-index:1}
   .hero h1{font-size:clamp(2rem,5vw,3.2rem);max-width:15ch;font-family:Fraunces,Georgia,serif}
   .hero p{max-width:52ch;opacity:.92;font-size:1.1rem}
   .hero .cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
@@ -145,6 +146,31 @@
   .summary li{margin:3px 0}
   .pc-card{background:var(--soft);border-radius:14px;padding:16px;margin-top:16px}
   .notice-ok{background:color-mix(in srgb,var(--ok) 14%,var(--card));border-radius:10px;padding:12px 14px;margin-top:12px}
+  .mcard.wide{max-width:860px}
+  .xc{margin-top:22px;border-top:1px solid var(--line);padding-top:18px}
+  .xc h3{font-size:1.15rem;margin-bottom:4px}
+  .xc-apps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0}
+  .xc-app{border:1px solid var(--line);border-radius:14px;padding:14px;background:var(--card)}
+  .xc-app b{display:block;font-size:1.02rem}
+  .xc-app small{display:block;color:var(--muted);font-size:.8rem;overflow-wrap:anywhere}
+  .xc-counts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .xpill{border-radius:999px;padding:2px 9px;font-size:.76rem;font-weight:700}
+  .xpill.granted{background:#E4F1DA;color:#3F7A1F} .xpill.declined{background:#FDEBD8;color:#A3570F}
+  .xpill.withdrawn{background:#FBE1DD;color:#A8372A} .xpill.pending{background:#DDEEFB;color:#1F6AA5}
+  .xc-panel{border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:10px 0}
+  .xc-panel h4{margin:0 0 10px;font-size:1rem}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.85rem;color:var(--muted);margin-bottom:10px}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  .bar-row{display:grid;grid-template-columns:minmax(120px,38%) 1fr;gap:12px;align-items:center;padding:5px 0;font-size:.92rem}
+  @media (max-width:560px){.bar-row{grid-template-columns:1fr}}
+  .bar{height:12px;border-radius:999px;background:var(--page);overflow:hidden;display:flex}
+  .bar span{display:block;height:100%}
+  .s-granted{background:#9DBE4F} .s-declined{background:#E3994A} .s-withdrawn{background:#D26A5A} .s-pending{background:#4F9DDB}
+  .xc details{border:1px solid var(--line);border-radius:12px;margin:8px 0;padding:10px 14px}
+  .xc summary{cursor:pointer;font-weight:700}
+  .xc table{width:100%;border-collapse:collapse;font-size:.88rem;margin-top:8px}
+  .xc td{padding:6px 4px;border-top:1px solid var(--line);vertical-align:top}
+  .xc td:last-child{white-space:nowrap;color:var(--muted);text-align:right}
   #pane-privacy #consentPortal .pv-back{display:none !important}
   #pane-privacy #consentPortal{border-radius:22px;overflow:hidden;padding:0 clamp(12px,2vw,24px) 24px}
   .spinner{width:38px;height:38px;border-radius:50%;border:4px solid var(--soft);border-top-color:var(--brand);animation:spin 1s linear infinite;margin:10px auto}
@@ -488,6 +514,7 @@ function openModal(id) {
   const f = $(`#${id} input`); if (f) setTimeout(() => f.focus(), 30);
 }
 function closeModal() {
+  $(".mcard").classList.remove("wide");
   $("#modal").hidden = true; $("#managePrefsBtn").setAttribute("aria-pressed", "false");
   if (lastFocus) lastFocus.focus();
 }
@@ -698,9 +725,82 @@ $("#lookupBtn").addEventListener("click", async () => {
         <p class="hint" style="margin-top:8px">We'll email a secure link to your preference center, where you can change your choices.</p>
         <div id="linkResult" aria-live="polite"></div></div>`;
     $("#sendLinkBtn").addEventListener("click", sendPreferenceLink);
+    showCrossAppSection(lookedUpMobile);
   } catch (err) { out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   finally { btn.disabled = false; btn.textContent = "Find email"; }
 });
+/* ---------- "Your consents across ACME apps" (signed-in customers only) ---------- */
+const NAMES = {
+  "privacy_notice.service_processing": ["Service Processing", "Service Activation"],
+  "marketing.calls": ["Marketing Communication", "Call"], "marketing.whatsapp": ["Marketing Communication", "WhatsApp"],
+  "marketing.sms": ["Marketing Communication", "SMS"], "marketing.email": ["Marketing Communication", "Email"],
+  "cross_service.data_linking": ["Connected Experiences", "Use Information Across Services"],
+  "kyc.aadhaar_ekyc": ["KYC Verification", "Aadhaar e-KYC"], "kyc.ckyc_share": ["KYC Verification", "Central KYC Registry"],
+  "health.patient_support": ["Patient Support", "Patient Support Programme"], "health.medicine_reminders": ["Patient Support", "Medicine Reminders"],
+  "health.clinical_research": ["Patient Support", "Clinical Research Contact"]
+};
+const STATUSES = ["granted", "declined", "withdrawn", "pending"];
+function showCrossAppSection(m) {
+  const box = document.createElement("div"); box.className = "xc"; box.id = "xcBox";
+  $("#lookupResult").appendChild(box);
+  if (!session || session.mobile !== m) {
+    box.innerHTML = `<h3>Your consents across ACME apps</h3><p class="hint">Log in with this mobile number to see the consents you've given across ACME apps.</p>`;
+    return;
+  }
+  $(".mcard").classList.add("wide");
+  loadMyConsents(m);
+}
+async function loadMyConsents(m) {
+  const box = $("#xcBox");
+  box.innerHTML = `<h3>Your consents across ACME apps</h3><div class="spinner" role="status" aria-label="Loading"></div><p class="hint center">Gathering your consents from ACME apps…</p>`;
+  try {
+    let data;
+    if (!CONFIG.SHEETS_URL) {
+      const mine = demoList().filter(r => r.applicant && r.applicant.mobile === m);
+      data = { ok: true, notes: ["Demo mode: showing this browser's records for this app only"], groups: mine.length ? [{
+        app: APP.brand, org: "demo", ids: [maskEmail(mine[mine.length - 1].applicant.email), "+91 " + m.slice(0, 2) + "XXXXXX" + m.slice(-2)],
+        consents: mine[mine.length - 1].consents.map(c => { const n = NAMES[c.purpose + "." + c.item] || [c.purpose, c.item]; return { processing: n[0], item: n[1], status: c.status, when: c.capturedAt }; })
+      }] : [] };
+    } else {
+      data = await callSheet({ action: "my_consents", mobile: m });
+    }
+    renderMyConsents(data);
+  } catch (err) {
+    box.innerHTML = `<h3>Your consents across ACME apps</h3><p class="err">${esc(err.message)}</p>`;
+  }
+}
+function renderMyConsents(data) {
+  const box = $("#xcBox"), groups = data.groups || [];
+  const fmt = w => { const d = w ? new Date(w) : null; return d && !isNaN(d) ? d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : ""; };
+  const count = list => STATUSES.reduce((o, s) => (o[s] = list.filter(c => c.status === s).length, o), {});
+  if (!groups.length) {
+    box.innerHTML = `<h3>Your consents across ACME apps</h3><p class="hint">We couldn't find any consent records for this number yet.</p>` +
+      (data.notes && data.notes.length ? `<p class="hint">${esc(data.notes.join(" · "))}</p>` : "");
+    return;
+  }
+  // 1. One card per app
+  const cards = groups.map(g => { const c = count(g.consents);
+    return `<div class="xc-app"><b>${esc(g.app)}</b><small>Org unit ${esc(g.org)} · ${esc(g.ids.join(", "))}</small>
+      <div class="xc-counts">${STATUSES.filter(s => c[s]).map(s => `<span class="xpill ${s}">${c[s]} ${s}</span>`).join("")}</div></div>`; }).join("");
+  // 2. Consent by processing purpose, across all apps
+  const byPurpose = {};
+  groups.forEach(g => g.consents.forEach(c => { const k = c.processing || "Other"; (byPurpose[k] = byPurpose[k] || []).push(c); }));
+  const maxTotal = Math.max(...Object.values(byPurpose).map(l => l.length));
+  const bars = Object.entries(byPurpose).map(([name, list]) => { const c = count(list);
+    const segs = STATUSES.filter(s => c[s]).map(s => `<span class="s-${s}" style="width:${(c[s] / maxTotal) * 100}%" title="${c[s]} ${s}"></span>`).join("");
+    return `<div class="bar-row"><span>${esc(name)}</span><div class="bar" role="img" aria-label="${esc(name)}: ${STATUSES.filter(s => c[s]).map(s => c[s] + " " + s).join(", ")}">${segs}</div></div>`; }).join("");
+  // 3. Details per app
+  const details = groups.map((g, i) => `<details ${i === 0 ? "open" : ""}><summary>${esc(g.app)} · ${g.consents.length} consent${g.consents.length === 1 ? "" : "s"}</summary>
+      <table>${g.consents.map(c => `<tr><td>${esc(c.processing)}<br><b>${esc(c.item)}</b></td><td><span class="xpill ${esc(c.status)}">${esc(c.status)}</span></td><td>${esc(fmt(c.when))}</td></tr>`).join("")}</table></details>`).join("");
+  box.innerHTML = `<h3>Your consents across ACME apps</h3>
+    <p class="hint">Every consent recorded for your mobile number, across the ACME apps you use.</p>
+    <div class="xc-apps">${cards}</div>
+    <div class="xc-panel"><h4>Consent by processing purpose</h4>
+      <div class="legend">${STATUSES.map(s => `<span><i class="s-${s}"></i>${s.charAt(0).toUpperCase() + s.slice(1)}</span>`).join("")}</div>${bars}</div>
+    ${details}
+    ${data.notes && data.notes.length ? `<p class="hint">${esc(data.notes.join(" · "))}</p>` : ""}`;
+}
+
 async function sendPreferenceLink() {
   const btn = $("#sendLinkBtn"), out = $("#linkResult"), sel = $("#emailSelect");
   if (!CONFIG.SHEETS_URL) { out.innerHTML = `<p class="err">Demo mode: set CONFIG.SHEETS_URL to send preference center links.</p>`; return; }
